@@ -16,8 +16,8 @@
 
 ```bash
 # 克隆项目
-git clone <repo-url>
-cd haiqikeji_v2
+git clone https://github.com/liqingzhao1314/haiqikeji.git
+cd haiqikeji
 
 # 创建虚拟环境
 python -m venv .venv
