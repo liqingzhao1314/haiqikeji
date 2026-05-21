@@ -28,6 +28,9 @@ python -m venv .venv
 # macOS / Linux
 source .venv/bin/activate
 
+# 设置 pip 默认使用清华 PyPI 镜像源
+python -m pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
+
 # 升级 pip
 python -m pip install --upgrade pip
 
