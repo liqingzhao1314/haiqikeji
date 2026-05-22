@@ -27,7 +27,7 @@ from haiqikeji.api import (
     study_session_heartbeat,
     study_session_start,
 )
-from haiqikeji.logging_config import get_logger, setup_logging
+from haiqikeji.logging_config import DEFAULT_LOG_FILE, get_logger, setup_logging
 from haiqikeji.progress import (
     _BAR_CLEAR_WIDTH,
     _render_progress_bar,
@@ -122,8 +122,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--log-file",
         type=str,
-        default=None,
-        help="指定日志文件路径（默认仅输出到控制台）",
+        default=DEFAULT_LOG_FILE,
+        help=f"指定日志文件路径（默认 {DEFAULT_LOG_FILE}）",
     )
     parser.add_argument(
         "--version",
@@ -184,12 +184,26 @@ def auto_study_node(
         logger.error(f"  [失败][start] {location}: 未获取到有效 sessionId")
         return False
 
+    session_ended = False
+
+    def end_session_once() -> dict[str, Any] | None:
+        """结束当前学习会话，确保只提交一次 end。"""
+        nonlocal session_ended
+        if session_ended:
+            return None
+        session_ended = True
+        try:
+            return study_session_end(session, token, session_id, course_id)
+        except requests.RequestException:
+            logger.warning("学习会话结束请求失败", exc_info=True)
+            return None
+
     # 第三步：计算心跳参数
     interval_seconds = max(1, heartbeat_interval_seconds)
     duration_seconds = coerce_duration_seconds(video_duration)
     if duration_seconds is None:
         logger.error(f"  [失败] {location}: 缺少有效视频时长")
-        study_session_end(session, token, session_id, course_id)
+        end_session_once()
         return False
 
     total_heartbeats = max(1, math.ceil(duration_seconds / interval_seconds))
@@ -202,7 +216,6 @@ def auto_study_node(
     else:
         current_progress = get_resume_progress_percent(progress_data)
     last_sent_progress = math.floor(current_progress)
-    session_ended = False
     heartbeat_frame = 0
 
     try:
@@ -257,9 +270,7 @@ def auto_study_node(
                         last_sent_progress,
                         course_id,
                     )
-                # 结束会话
-                study_session_end(session, token, session_id, course_id)
-                session_ended = True
+                end_session_once()
                 return False
 
             last_sent_progress = next_progress
@@ -267,8 +278,10 @@ def auto_study_node(
         # 清除进度条并换行
         print("\r" + " " * _BAR_CLEAR_WIDTH + "\r", end="")
         # 第四步：结束学习会话
-        end_result = study_session_end(session, token, session_id, course_id)
-        session_ended = True
+        end_result = end_session_once()
+        if end_result is None:
+            logger.error(f"  [失败][end] {location}: 学习会话结束失败")
+            return False
         if end_result.get("code") != 200:
             logger.error(f"  [失败][end] {location}: {end_result.get('msg') or '学习会话结束失败'}")
             return False
@@ -277,6 +290,11 @@ def auto_study_node(
         logger.info(f"  [完成] {node_name}")
         return True
 
+    except KeyboardInterrupt:
+        print("\r" + " " * _BAR_CLEAR_WIDTH + "\r", end="")
+        logger.info("用户中断，正在结束学习会话...")
+        end_session_once()
+        raise
     except requests.RequestException:
         # 清除进度条行
         print("\r" + " " * _BAR_CLEAR_WIDTH + "\r", end="")
@@ -293,10 +311,7 @@ def auto_study_node(
                 )
             except requests.RequestException:
                 pass
-            try:
-                study_session_end(session, token, session_id, course_id)
-            except requests.RequestException:
-                pass
+        end_session_once()
         raise
 
 
