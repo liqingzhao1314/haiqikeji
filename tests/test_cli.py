@@ -17,6 +17,16 @@ class TestBuildParser:
 
         assert args.log_file == DEFAULT_LOG_FILE
 
+    def test_speed_defaults_to_one(self):
+        args = cli.build_parser().parse_args(["-n", "user", "-p", "password"])
+
+        assert args.speed == 1.0
+
+    def test_speed_parses_float(self):
+        args = cli.build_parser().parse_args(["-n", "user", "-p", "password", "--speed", "2.5"])
+
+        assert args.speed == 2.5
+
 
 class TestAutoStudyNode:
     def test_ctrl_c_ends_session_once_and_reraises(self, monkeypatch):
@@ -127,3 +137,37 @@ class TestAutoStudyNode:
 
         assert study_session_heartbeat.call_count == 3
         study_session_end.assert_called_once_with(ANY, "token", "sid-1", 30)
+
+    def test_speed_doubles_heartbeat_count(self, monkeypatch):
+        """At speed=2, interval halves so heartbeats double for same duration."""
+        # video_duration=4s, step=2s, speed=2 => interval=1s => 4 heartbeats
+        heartbeat_mock = Mock(return_value={"code": 200})
+        monkeypatch.setattr(
+            cli, "study_session_start", Mock(return_value={"code": 200, "data": "sid-1"})
+        )
+        monkeypatch.setattr(cli, "study_session_heartbeat", heartbeat_mock)
+        monkeypatch.setattr(cli, "study_session_end", Mock(return_value={"code": 200}))
+        monotonic_values = []
+        t = 0.0
+        for _ in range(20):
+            monotonic_values.extend([t, t + 1.0])
+            t += 1.0
+        monkeypatch.setattr(cli.time, "monotonic", Mock(side_effect=monotonic_values))
+        monkeypatch.setattr(cli.time, "sleep", Mock())
+
+        result = cli.auto_study_node(
+            session=Mock(),
+            token="token",
+            school_id=10,
+            student_id=20,
+            course_id=30,
+            node_id=40,
+            node_name="小节",
+            video_duration=4,
+            heartbeat_interval_seconds=2,
+            resume_progress=False,
+            speed=2.0,
+        )
+
+        assert result is True
+        assert heartbeat_mock.call_count == 4

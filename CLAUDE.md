@@ -12,6 +12,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # 运行
 uv run haiqikeji -n <账号> -p <密码> --skip
 
+# 指定倍速（0.5~3.0，默认 1.0）
+uv run haiqikeji -n <账号> -p <密码> --speed 2.0
+
 # 代码检查
 uv run ruff check haiqikeji/ tests/
 

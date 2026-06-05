@@ -51,6 +51,7 @@ if __name__ == "__main__":
 | `--chid` / `--chapter-id` | 指定章节 ID | 缩小刷课范围，要求配合 `--cid` |
 | `--nid` / `--node-id` | 指定小节 ID | 精确刷单个小节，要求配合 `--cid` 和 `--chid` |
 | `--step` / `--progress-step` | 心跳间隔秒数 | 影响学习进度上报节奏 |
+| `--speed` | 播放速度倍数（0.5~3.0） | 缩短心跳间隔，加速刷课 |
 | `--skip` / `--skip-complete` | 跳过已完成小节 | 影响刷课遍历逻辑 |
 | `--list` / `--list-incomplete` | 仅列出未完成项 | 决定是否进入刷课分支 |
 | `-v` / `--verbose` | 启用 DEBUG 级别输出 | 用于调试接口响应和进度 |
@@ -80,6 +81,7 @@ session = create_session()
 
 - 如果指定 `--nid`，则必须同时指定 `--cid` 和 `--chid`
 - 如果指定 `--chid`，则必须同时指定 `--cid`
+- `--speed` 必须在 0.5 到 3.0 之间
 
 对应结果如下：
 
@@ -219,6 +221,7 @@ course_results = study_course(
     skip_complete=args.skip_complete,
     chapter_id=args.chapter_id,
     node_id=args.node_id,
+    speed=args.speed,
 )
 ```
 

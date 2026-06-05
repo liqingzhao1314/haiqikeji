@@ -100,6 +100,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="每次心跳之间的间隔秒数，默认25",
     )
     parser.add_argument(
+        "--speed",
+        type=float,
+        default=1.0,
+        help="播放速度倍数（0.5~3.0），默认 1.0",
+    )
+    parser.add_argument(
         "--skip",
         "--skip-complete",
         action="store_true",
@@ -146,6 +152,7 @@ def auto_study_node(
     progress_data: Any = None,
     chapter_name: str = "",
     resume_progress: bool = True,
+    speed: float = 1.0,
 ) -> bool:
     """自动完成单个小节的学习生命周期。
 
@@ -199,7 +206,7 @@ def auto_study_node(
             return None
 
     # 第三步：计算心跳参数
-    interval_seconds = max(1, heartbeat_interval_seconds)
+    interval_seconds = max(1, heartbeat_interval_seconds / speed)
     duration_seconds = coerce_duration_seconds(video_duration)
     if duration_seconds is None:
         logger.error(f"  [失败] {location}: 缺少有效视频时长")
@@ -326,6 +333,7 @@ def _study_node_with_progress_policy(
     heartbeat_interval_seconds: int,
     skip_complete: bool,
     chapter_name: str = "",
+    speed: float = 1.0,
 ) -> dict[str, int]:
     """按已完成/跳过/重刷策略学习单个小节。"""
     logger = get_logger(__name__)
@@ -356,6 +364,7 @@ def _study_node_with_progress_policy(
         progress_data=progress_data,
         chapter_name=chapter_name,
         resume_progress=not node_completed,
+        speed=speed,
     )
     if success:
         results["success"] += 1
@@ -453,6 +462,7 @@ def study_chapter(
     progress_map: dict[int, dict[str, Any]],
     heartbeat_interval_seconds: int,
     skip_complete: bool,
+    speed: float = 1.0,
 ) -> dict[str, int]:
     """学习单个章节的所有小节。
 
@@ -498,6 +508,7 @@ def study_chapter(
             heartbeat_interval_seconds,
             skip_complete,
             chapter_name,
+            speed=speed,
         )
         _merge_study_results(results, node_results)
 
@@ -514,6 +525,7 @@ def study_course(
     skip_complete: bool,
     chapter_id: int | None = None,
     node_id: int | None = None,
+    speed: float = 1.0,
 ) -> dict[str, int]:
     """学习单个课程。
 
@@ -584,6 +596,7 @@ def study_course(
                         heartbeat_interval_seconds,
                         skip_complete,
                         chapter.get("name", ""),
+                        speed=speed,
                     )
                     _merge_study_results(results, node_results)
                     return results
@@ -612,6 +625,7 @@ def study_course(
             progress_map,
             heartbeat_interval_seconds,
             skip_complete,
+            speed=speed,
         )
         _merge_study_results(results, chapter_results)
 
@@ -643,6 +657,10 @@ def main() -> int:
             if args.course_id is None:
                 logger.error("--chid 需要同时指定 --cid")
                 return 1
+
+        if not (0.5 <= args.speed <= 3.0):
+            logger.error("--speed 必须在 0.5 到 3.0 之间")
+            return 1
 
         # 登录
         logger.info("正在登录...")
@@ -709,6 +727,8 @@ def main() -> int:
 
         # 执行刷课
         logger.info("\n开始自动刷课")
+        if args.speed != 1.0:
+            logger.info(f"播放速度: {args.speed}x（心跳间隔 {args.progress_step}s → {args.progress_step / args.speed:.1f}s）")
         study_results = _new_study_results()
 
         for course in filtered_courses:
@@ -722,6 +742,7 @@ def main() -> int:
                 skip_complete=args.skip_complete,
                 chapter_id=args.chapter_id,
                 node_id=args.node_id,
+                speed=args.speed,
             )
             _merge_study_results(study_results, course_results)
 
