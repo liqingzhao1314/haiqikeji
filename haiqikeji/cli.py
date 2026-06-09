@@ -126,6 +126,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="启用 DEBUG 级别日志输出",
     )
     parser.add_argument(
+        "--platform",
+        choices=["haiqikeji", "yinghua"],
+        default="haiqikeji",
+        help="刷课平台：haiqikeji（默认）或 yinghua",
+    )
+    parser.add_argument(
+        "--url",
+        type=str,
+        default=None,
+        help="英华平台基础地址（--platform yinghua 时必填，如 https://scauzj.xxx.com）",
+    )
+    parser.add_argument(
         "--log-file",
         type=str,
         default=DEFAULT_LOG_FILE,
@@ -644,6 +656,27 @@ def main() -> int:
     log_level = logging.DEBUG if args.verbose else logging.INFO
     logger = setup_logging(log_level=log_level, log_file=args.log_file)
 
+    # 英华平台路由
+    if args.platform == "yinghua":
+        if not args.url:
+            logger.error("使用英华平台时必须通过 --url 指定平台地址")
+            logger.error("示例: --platform yinghua --url https://scauzj.xxx.com")
+            return 1
+
+        # 规范化 URL：去除末尾斜杠
+        base_url = args.url.rstrip("/")
+
+        from haiqikeji.yinghua.cli import main as yinghua_main
+
+        return yinghua_main(
+            username=args.number,
+            password=args.password,
+            base_url=base_url,
+            speed=args.speed,
+            skip_complete=args.skip_complete,
+            verbose=args.verbose,
+        )
+
     session = create_session()
 
     try:
@@ -728,7 +761,9 @@ def main() -> int:
         # 执行刷课
         logger.info("\n开始自动刷课")
         if args.speed != 1.0:
-            logger.info(f"播放速度: {args.speed}x（心跳间隔 {args.progress_step}s → {args.progress_step / args.speed:.1f}s）")
+            logger.info(
+                f"播放速度: {args.speed}x（心跳间隔 {args.progress_step}s → {args.progress_step / args.speed:.1f}s）"
+            )
         study_results = _new_study_results()
 
         for course in filtered_courses:

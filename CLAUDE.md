@@ -4,13 +4,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概述
 
-海启科技课程平台自动刷课 CLI 工具。Python 包结构（`haiqikeji/`），通过模拟浏览器请求与平台 API 交互，实现自动登录、获取课程、遍历章节小节、自动播放视频（心跳上报进度）。
+课程平台自动刷课 CLI 工具，支持两个平台：
+- **海启科技**（`scauzj.haiqikeji.com`）— JSON API + 心跳上报机制
+- **英华课程**（`--url` 指定）— HTML 解析 + 验证码登录 + 学时提交机制（多个域名，运行时传入）
+
+通过 `--platform` 切换平台，英华平台需通过 `--url` 指定基础地址。
 
 ## 开发命令
 
 ```bash
-# 运行
+# 海启科技平台（默认）
 uv run haiqikeji -n <账号> -p <密码> --skip
+
+# 英华平台（需额外依赖，必须指定 --url）
+uv sync --extra yinghua
+uv run haiqikeji -n <账号> -p <密码> --platform yinghua --url https://scauzj.xxx.com
 
 # 指定倍速（0.5~3.0，默认 1.0）
 uv run haiqikeji -n <账号> -p <密码> --speed 2.0
@@ -27,11 +35,16 @@ uv run pytest
 
 ## 依赖管理
 
-使用 `uv` 管理。唯一运行时依赖：`requests>=2.33.0`。Python 3.13。
+使用 `uv` 管理。Python 3.13。
+
+- 运行时依赖：`requests>=2.33.0`
+- 英华平台可选依赖：`ddddocr>=1.5.0`、`lxml>=5.0.0`（通过 `uv sync --extra yinghua` 安装）
 
 ## 架构
 
 `main.py` 是顶层命令行入口，复用 `haiqikeji.cli.main()`。`haiqikeji/` 包按职责分为以下模块：
+
+### 海启科技平台模块（haiqikeji/）
 
 1. **`api.py`** — API 端点 URL、请求头、Cookie 常量；每个端点一个请求函数（`login`、`get_user_info`、`get_course_list` 等）
 2. **`session.py`** — `create_session()` 创建带重试策略的 `requests.Session`
@@ -40,13 +53,19 @@ uv run pytest
 5. **`cli.py`** — CLI 参数解析和业务逻辑（学习结果初始化/合并、进度策略分发、`auto_study_node` → `study_chapter` → `study_course`）
 6. **`logging_config.py`** — 日志系统配置（`setup_logging`、`get_logger`）；控制台只显示消息正文，文件日志保留详细时间、级别、函数名和行号
 
+### 英华平台模块（haiqikeji/yinghua/）
+
+1. **`api.py`** — 英华平台 API 端点和请求函数（验证码登录、HTML 课程解析、学时提交）
+2. **`session.py`** — 英华平台会话创建（带重试策略）
+3. **`cli.py`** — 英华平台刷课业务逻辑（`_do_login` → `_do_update_progress`）
+
 ## 关键数据流
 
-`main()` 调用链：
+### 海启科技平台
 
 ```
 main()                              # main.py
-  → main()                          # cli.py
+  → main()                          # cli.py (platform=haiqikeji)
       → study_course()              # cli.py
           → get_course_chapter_tree()   # api.py — 一次调用获取章节+小节树
           → get_course_progress()       # api.py — 获取课程小节进度列表
@@ -60,11 +79,35 @@ main()                              # main.py
                       → study_session_end()          # api.py
 ```
 
+### 英华平台
+
+```
+main()                              # main.py
+  → main()                          # cli.py (platform=yinghua)
+      → yinghua_main()              # yinghua/cli.py
+          → _do_login()             # yinghua/cli.py — 验证码登录（ddddocr）
+          → get_api_token()         # yinghua/api.py — 获取 API 令牌
+          → get_incomplete_course_ids()  # yinghua/api.py — HTML 解析课程列表
+          → get_study_records()     # yinghua/api.py — 分页学习记录
+          → _do_update_progress()   # yinghua/cli.py — 30秒间隔提交学时
+              → submit_study_time()     # yinghua/api.py — 提交学习时长
+              → get_video_progress()    # yinghua/api.py — 查询视频进度
+```
+
 ## API 响应约定
+
+### 海启科技平台
 
 所有接口返回 `{code, msg, data}` 结构。`code == 200` 表示成功。登录接口的真实响应中 `data` 直接是 JWT 字符串，`extract_token()` 只按该结构提取 token。认证通过 `authorization` 请求头传递 JWT token。
 
 `yee_node_select` 接口返回树形结构：`data` 是章节数组，每个章节包含 `children`（小节数组）。参数为 `courseId` + `schoolId` + `studentId`，不是按章节查询。
+
+### 英华平台
+
+- 登录接口返回 `{status, ...}` 结构
+- API 令牌接口返回 `{result: {data: {token}}}` 结构
+- 课程列表通过 HTML 页面 XPath 解析获取
+- 学时提交接口返回 `{status, result: {data: {studyId}}}` 结构
 
 ## 代码风格
 
