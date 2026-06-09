@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import re
 import time
 from typing import Any
 
@@ -19,6 +20,44 @@ import requests
 # ====================
 
 DEFAULT_BASE_URL = "https://scauzj.tuozhikj.com"
+
+# HTML 错误页中嵌入的 JSON 数据模式
+_EMBEDDED_JSON_RE = re.compile(r"var\s+data\s*=\s*(\{.*?})\s*;", re.DOTALL)
+
+
+def _parse_response(response: requests.Response) -> dict[str, Any]:
+    """解析接口响应，兼容 JSON 和 HTML 错误页两种格式。
+
+    正常接口返回 JSON；章节未解锁等错误场景返回 HTML 错误页，
+    其中 <script> 标签内嵌 JSON（var data = {...};）。
+
+    Args:
+        response: HTTP 响应对象。
+
+    Returns:
+        解析后的字典。JSON 解析失败时尝试从 HTML 提取嵌入 JSON，
+        均失败时返回 {"status": False, "msg": 原始响应文本前200字符}。
+    """
+    # 优先尝试直接 JSON 解析
+    try:
+        return response.json()
+    except ValueError:
+        pass
+
+    # 尝试从 HTML 中提取嵌入的 JSON
+    text = response.text
+    match = _EMBEDDED_JSON_RE.search(text)
+    if match:
+        import json
+
+        try:
+            return json.loads(match.group(1))
+        except ValueError:
+            pass
+
+    # 兜底：返回原始文本摘要
+    return {"status": False, "msg": text[:200]}
+
 
 # ====================
 # XPath 路径常量（与 base_url 无关）
@@ -178,7 +217,7 @@ def login_with_captcha(
         timeout=15,
     )
     response.raise_for_status()
-    return response.json()
+    return _parse_response(response)
 
 
 def get_api_token(
@@ -356,7 +395,7 @@ def get_video_progress(
         timeout=15,
     )
     response.raise_for_status()
-    return response.json()
+    return _parse_response(response)
 
 
 def submit_study_time(
@@ -394,4 +433,4 @@ def submit_study_time(
         timeout=15,
     )
     response.raise_for_status()
-    return response.json()
+    return _parse_response(response)
