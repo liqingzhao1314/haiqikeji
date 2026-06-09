@@ -47,7 +47,7 @@ uv run pytest
 ### 海启科技平台模块（haiqikeji/）
 
 1. **`api.py`** — API 端点 URL、请求头、Cookie 常量；每个端点一个请求函数（`login`、`get_user_info`、`get_course_list` 等）
-2. **`session.py`** — `create_session()` 创建带重试策略的 `requests.Session`
+2. **`session.py`** — `create_session_with_retry()` 创建带重试策略的公共 Session；`create_session()` 在此基础上添加海启平台请求头和 Cookie
 3. **`progress.py`** — 终端进度条渲染（`_format_time`、`_render_progress_bar`）
 4. **`utils.py`** — 工具函数：进度判断（`is_complete_progress`）、时长解析（`coerce_duration_seconds`）、断点续刷计算（`get_resume_progress_percent`）、小节进度映射（`build_node_progress_map`）、课程过滤（`course_matches`、`is_unexpired_course`）
 5. **`cli.py`** — CLI 参数解析和业务逻辑（学习结果初始化/合并、进度策略分发、`auto_study_node` → `study_chapter` → `study_course`）
@@ -56,7 +56,7 @@ uv run pytest
 ### 英华平台模块（haiqikeji/yinghua/）
 
 1. **`api.py`** — 英华平台 API 端点和请求函数（验证码登录、HTML 课程解析、学时提交）
-2. **`session.py`** — 英华平台会话创建（带重试策略）
+2. **`session.py`** — 复用 `haiqikeji.session.create_session_with_retry()` 创建英华平台会话
 3. **`cli.py`** — 英华平台刷课业务逻辑（`_do_login` → `_do_update_progress`）
 
 ## 关键数据流

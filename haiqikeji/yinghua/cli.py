@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 
 import requests
@@ -53,6 +54,7 @@ def parse_time_to_seconds(time_str: str) -> int:
             return minutes * 60 + seconds
         return int(parts[0])
     except (ValueError, AttributeError, IndexError):
+        logging.getLogger(__name__).warning(f"时间字符串解析失败: {time_str!r}，返回 0")
         return 0
 
 
@@ -108,7 +110,7 @@ def _do_update_progress(
     node_id: str,
     speed: float,
     base_url: str,
-) -> bool:
+) -> bool | None:
     """更新单个节点的学习进度直到完成。
 
     通过每隔 30 秒提交一次学时来模拟学习进度。
@@ -196,8 +198,8 @@ def _do_update_progress(
     try:
         # 持续提交直到完成
         while True:
-            studied_sec = parse_time_to_seconds(str(studied_duration))
-            remaining_sec = total_sec - studied_sec
+            # 用本地累计提交时间计算剩余，避免首次循环使用过时的服务端数据
+            remaining_sec = total_sec - study_time
 
             if remaining_sec <= 0:
                 break
@@ -288,7 +290,7 @@ def main(
     try:
         token = get_api_token(session, username, password, base_url)
         logger.info("获取 API 令牌成功")
-    except (requests.RequestException, KeyError):
+    except (requests.RequestException, ValueError):
         logger.error("获取 API 令牌失败", exc_info=True)
         return 1
 

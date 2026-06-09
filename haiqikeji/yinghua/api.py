@@ -241,7 +241,7 @@ def get_api_token(
 
     Raises:
         requests.RequestException: 网络请求失败。
-        KeyError: 响应中找不到 token 字段。
+        ValueError: 响应中找不到 token 字段。
     """
     response = session.post(
         f"{base_url}/api/login",
@@ -251,7 +251,12 @@ def get_api_token(
     )
     response.raise_for_status()
     result = response.json()
-    return result["result"]["data"]["token"]
+    token = result.get("result", {}).get("data", {}).get("token")
+    if not token:
+        raise ValueError(
+            f"获取 API 令牌失败：响应中未找到 token 字段 (status={result.get('status')})"
+        )
+    return token
 
 
 # ====================

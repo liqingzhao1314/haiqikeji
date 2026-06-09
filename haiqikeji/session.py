@@ -9,19 +9,16 @@ from urllib3.util.retry import Retry
 from haiqikeji.api import DEFAULT_COOKIES, DEFAULT_HEADERS
 
 
-def create_session() -> requests.Session:
-    """创建并配置一个模拟浏览器的 requests.Session。
+def create_session_with_retry() -> requests.Session:
+    """创建带重试策略的 requests.Session。
 
-    预设请求头（User-Agent、Sec-CH-UA 等）和 Cookie，
-    使后续请求看起来像是从 Chrome 浏览器发出的。
-    同时挂载带重试策略的 HTTPAdapter，自动处理网络抖动和 5xx 错误。
+    挂载带重试策略的 HTTPAdapter，自动处理网络抖动和 5xx 错误。
+    各平台可在此基础上添加自己的请求头和 Cookie。
 
     Returns:
-        配置好的 Session 对象。
+        配置好重试策略的 Session 对象。
     """
     session = requests.Session()
-    session.headers.update(DEFAULT_HEADERS)
-    session.cookies.update(DEFAULT_COOKIES)
 
     retry_strategy = Retry(
         total=3,
@@ -37,4 +34,19 @@ def create_session() -> requests.Session:
     session.mount("https://", adapter)
     session.mount("http://", adapter)
 
+    return session
+
+
+def create_session() -> requests.Session:
+    """创建并配置一个模拟浏览器的 requests.Session。
+
+    预设请求头（User-Agent、Sec-CH-UA 等）和 Cookie，
+    使后续请求看起来像是从 Chrome 浏览器发出的。
+
+    Returns:
+        配置好的 Session 对象。
+    """
+    session = create_session_with_retry()
+    session.headers.update(DEFAULT_HEADERS)
+    session.cookies.update(DEFAULT_COOKIES)
     return session

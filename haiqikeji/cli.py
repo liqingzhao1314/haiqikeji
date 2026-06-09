@@ -62,7 +62,7 @@ def build_parser() -> argparse.ArgumentParser:
     Returns:
         配置好的 ArgumentParser 实例。
     """
-    parser = argparse.ArgumentParser(description="自动刷海启科技课程")
+    parser = argparse.ArgumentParser(description="自动刷课工具")
     parser.add_argument("-n", "--number", required=True, help="登录账号/学号")
     parser.add_argument("-p", "--password", required=True, help="登录密码")
     parser.add_argument(
@@ -226,6 +226,14 @@ def auto_study_node(
         return False
 
     total_heartbeats = max(1, math.ceil(duration_seconds / interval_seconds))
+    # 防止心跳次数过多（如 --step 过小或视频过长），上限 2000 次
+    _MAX_HEARTBEATS = 2000
+    if total_heartbeats > _MAX_HEARTBEATS:
+        logger.warning(
+            f"心跳次数过多({total_heartbeats})，自动调整间隔以限制在 {_MAX_HEARTBEATS} 次以内"
+        )
+        total_heartbeats = _MAX_HEARTBEATS
+        interval_seconds = duration_seconds / total_heartbeats
     progress_increment = 100.0 / total_heartbeats
     # 优先使用 get_node_progress 获取的实时进度，回退到 progress_data
     if not resume_progress:

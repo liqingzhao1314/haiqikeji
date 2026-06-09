@@ -52,6 +52,8 @@ if __name__ == "__main__":
 | `--nid` / `--node-id` | 指定小节 ID | 精确刷单个小节，要求配合 `--cid` 和 `--chid` |
 | `--step` / `--progress-step` | 心跳间隔秒数 | 影响学习进度上报节奏 |
 | `--speed` | 播放速度倍数（0.5~3.0） | 缩短心跳间隔，加速刷课 |
+| `--platform` | 刷课平台：`haiqikeji`（默认）或 `yinghua` | 决定走哪条平台路由 |
+| `--url` | 英华平台基础地址（`--platform yinghua` 时必填） | 英华平台必填 |
 | `--skip` / `--skip-complete` | 跳过已完成小节 | 影响刷课遍历逻辑 |
 | `--list` / `--list-incomplete` | 仅列出未完成项 | 决定是否进入刷课分支 |
 | `-v` / `--verbose` | 启用 DEBUG 级别输出 | 用于调试接口响应和进度 |
@@ -64,18 +66,34 @@ if __name__ == "__main__":
 ```python
 args = build_parser().parse_args()
 logger = setup_logging(...)
-session = create_session()
 ```
 
-该阶段完成三件事：
+该阶段完成两件事：
 
 1. 读取命令行参数，生成 `args`
 2. 初始化控制台/文件日志
-3. 创建并初始化 `requests.Session`
 
-其中 `create_session()` 会预置浏览器请求头、Cookie 和重试策略，使后续请求更接近真实浏览器行为。
+### 4.2 平台路由
 
-### 4.2 参数合法性校验
+`main()` 根据 `--platform` 参数决定走海启科技还是英华平台：
+
+```python
+if args.platform == "yinghua":
+    # 校验 --url 必填，规范化 URL 格式
+    # 调用 haiqikeji.yinghua.cli.main() 并直接返回
+```
+
+如果选择英华平台，`main()` 会校验 `--url` 参数后直接委托给 `yinghua/cli.py` 的 `main()`，后续流程不再经过海启科技的登录和刷课逻辑。
+
+### 4.3 创建会话
+
+```python
+session = create_session()
+```
+
+创建并初始化 `requests.Session`。`create_session()` 内部调用 `create_session_with_retry()` 预置重试策略（自动处理 429/5xx），再添加海启平台的浏览器请求头和 Cookie。
+
+### 4.4 参数合法性校验
 
 `main()` 对章节、小节的定向刷课参数做了前置约束：
 
@@ -90,7 +108,7 @@ session = create_session()
 
 这样可以避免用户只提供局部定位信息，导致程序无法唯一确定目标章节或小节。
 
-### 4.3 登录阶段
+### 4.5 登录阶段
 
 ```python
 login_result = login(session, args.number, args.password, args.school_id)
@@ -108,7 +126,7 @@ login_result.get("code") == 200
 - 输出接口返回的 `msg`
 - 直接 `return 1`
 
-### 4.4 提取 token
+### 4.6 提取 token
 
 ```python
 token = extract_token(login_result)
@@ -122,7 +140,7 @@ token = extract_token(login_result)
 
 因此 `extract_token()` 只接受 `data` 为非空字符串的结构。若登录接口表面成功，但 `data` 不是有效 token 字符串，会抛出 `ValueError`，并由 `main()` 外层异常处理统一接管。
 
-### 4.5 校验 token 并获取用户信息
+### 4.7 校验 token 并获取用户信息
 
 ```python
 user_info_result = get_user_info(session, token)
@@ -140,7 +158,7 @@ user_info_result = get_user_info(session, token)
 
 这里的 `student_id` 是后续获取课程列表、学习进度和刷课请求的重要标识。
 
-### 4.6 获取课程列表
+### 4.8 获取课程列表
 
 ```python
 course_list_result = get_course_list(session, token, args.school_id, student_id)
@@ -154,7 +172,7 @@ course_list_result = get_course_list(session, token, args.school_id, student_id)
 
 如果成功，则进入课程过滤阶段。
 
-### 4.7 课程过滤
+### 4.9 课程过滤
 
 `main()` 会先拿到原始课程列表，再用以下条件生成 `filtered_courses`：
 
@@ -179,7 +197,7 @@ course_list_result = get_course_list(session, token, args.school_id, student_id)
 
 这里返回 `0` 表示程序运行正常，只是当前没有符合条件的课程。
 
-### 4.8 列表模式分支
+### 4.10 列表模式分支
 
 如果用户启用了 `--list`：
 
@@ -198,7 +216,7 @@ return 0
 
 因此，`--list` 可以理解为一个只读检查模式。
 
-### 4.9 正式刷课分支
+### 4.11 正式刷课分支
 
 如果没有开启 `--list`，则进入自动刷课分支：
 
@@ -227,7 +245,7 @@ course_results = study_course(
 
 也就是说，`main()` 在这一层负责的是课程级调度，而不是直接操作具体小节。
 
-### 4.10 输出统计结果
+### 4.12 输出统计结果
 
 全部课程处理完成后，程序会用单行输出汇总：
 
@@ -241,7 +259,7 @@ course_results = study_course(
 - 不代表所有课程或小节都刷成功
 - 小节级失败会体现在统计数据里，而不是直接导致进程退出码变成 `1`
 
-### 4.11 统一异常处理
+### 4.13 统一异常处理
 
 `main()` 使用 `try/except` 对外层关键异常做统一兜底：
 
@@ -357,48 +375,54 @@ main()
 flowchart TD
     A[程序启动] --> B[调用 main]
     B --> C[解析命令行参数 parse_args]
-    C --> D[创建 Session create_session]
+    C --> D[初始化日志 setup_logging]
 
-    D --> E{参数组合是否合法?}
-    E -- 否 --> E1[输出参数错误] --> Z1[返回 1]
-    E -- 是 --> F[调用 login 登录]
+    D --> E{--platform 是 yinghua?}
+    E -- 是 --> E1{--url 是否有效?}
+    E1 -- 否 --> E2[输出 --url 必填提示] --> Z1[返回 1]
+    E1 -- 是 --> E3[调用 yinghua.cli.main] --> Z0[返回 0]
 
-    F --> G{登录 code == 200?}
-    G -- 否 --> G1[输出登录失败和 msg] --> Z1
-    G -- 是 --> H[extract_token 从 data 字符串提取 token]
+    E -- 否 --> F[创建 Session create_session]
+    F --> G{参数组合是否合法?}
+    G -- 否 --> G1[输出参数错误] --> Z1
+    G -- 是 --> H[调用 login 登录]
 
-    H --> I[调用 get_user_info 校验 token]
-    I --> J{用户信息 code == 200?}
-    J -- 否 --> J1[输出获取用户信息失败] --> Z1
-    J -- 是 --> K[读取 student_id]
+    H --> I{登录 code == 200?}
+    I -- 否 --> I1[输出登录失败和 msg] --> Z1
+    I -- 是 --> J[extract_token 从 data 字符串提取 token]
 
-    K --> L{student_id 有效?}
-    L -- 否 --> L1[抛出 ValueError] --> Z1
-    L -- 是 --> M[调用 get_course_list 获取课程列表]
+    J --> K[调用 get_user_info 校验 token]
+    K --> L{用户信息 code == 200?}
+    L -- 否 --> L1[输出获取用户信息失败] --> Z1
+    L -- 是 --> M[读取 student_id]
 
-    M --> N{课程列表 code == 200?}
-    N -- 否 --> N1[输出获取课程列表失败] --> Z1
-    N -- 是 --> O[按未过期和课程条件过滤课程]
+    M --> N{student_id 有效?}
+    N -- 否 --> N1[抛出 ValueError] --> Z1
+    N -- 是 --> O[调用 get_course_list 获取课程列表]
 
-    O --> P{filtered_courses 是否为空?}
-    P -- 是 --> P1[输出没有匹配的可刷课程] --> Z0[返回 0]
-    P -- 否 --> Q{是否开启 --list?}
+    O --> P{课程列表 code == 200?}
+    P -- 否 --> P1[输出获取课程列表失败] --> Z1
+    P -- 是 --> Q[按未过期和课程条件过滤课程]
 
-    Q -- 是 --> Q1[调用 list_incomplete_courses]
-    Q1 --> Z0
+    Q --> R{filtered_courses 是否为空?}
+    R -- 是 --> R1[输出没有匹配的可刷课程] --> Z0
+    R -- 否 --> S{是否开启 --list?}
 
-    Q -- 否 --> R[初始化统计 success failed skipped]
-    R --> S[遍历 filtered_courses]
-    S --> T[调用 study_course]
+    S -- 是 --> S1[调用 list_incomplete_courses]
+    S1 --> Z0
 
-    T --> U[合并课程统计结果]
-    U --> V{还有下一门课程?}
-    V -- 是 --> S
-    V -- 否 --> W[输出刷课完成统计]
-    W --> Z0
+    S -- 否 --> T[初始化统计 success failed skipped]
+    T --> U[遍历 filtered_courses]
+    U --> V[调用 study_course]
 
-    Z1 --> X[程序失败结束]
-    Z0 --> Y[程序成功结束]
+    V --> W[合并课程统计结果]
+    W --> X{还有下一门课程?}
+    X -- 是 --> U
+    X -- 否 --> Y[输出刷课完成统计]
+    Y --> Z0
+
+    Z1 --> AA[程序失败结束]
+    Z0 --> BB[程序成功结束]
 ```
 
 ## 8. 关键分支总结
