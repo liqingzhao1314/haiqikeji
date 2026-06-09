@@ -30,6 +30,9 @@ _TICK = 0.25
 # 学习状态筛选关键词
 _STATE_UNLEARNED = "未学"
 
+# 章节未解锁标识
+_CHAPTER_LOCKED_MSG = "尚未解锁"
+
 
 def parse_time_to_seconds(time_str: str) -> int:
     """将时间字符串 (HH:MM:SS) 转换为秒数。
@@ -119,7 +122,7 @@ def _do_update_progress(
         base_url: 英华平台基础地址。
 
     Returns:
-        学习是否成功完成。
+        True 学习成功，False 学习失败，None 章节未解锁（调用方应 break）。
     """
     logger = get_logger(__name__)
     study_id = 0
@@ -136,6 +139,13 @@ def _do_update_progress(
 
     # 获取初始进度
     progress_result = get_video_progress(session, token, node_id, base_url)
+
+    # 检查章节是否未解锁
+    result_msg = str(progress_result.get("msg") or "")
+    if _CHAPTER_LOCKED_MSG in result_msg:
+        logger.info(f"课程 {node_id} 章节未解锁，跳过后续章节")
+        return None
+
     progress_data = progress_result.get("result", {}).get("data", {})
     video_duration = progress_data.get("videoDuration", 0)
     study_total = progress_data.get("study_total", {})
@@ -337,13 +347,16 @@ def main(
             logger.info(f"正在学习: nodeId={node_id_str}")
 
             try:
-                success = _do_update_progress(session, token, node_id_str, speed, base_url)
+                result = _do_update_progress(session, token, node_id_str, speed, base_url)
             except requests.RequestException:
                 logger.error(f"课程 {node_id_str} 学习异常，跳过", exc_info=True)
                 fail_count += 1
                 continue
 
-            if success:
+            if result is None:
+                # 章节未解锁，跳过该课程剩余章节
+                break
+            if result:
                 success_count += 1
             else:
                 fail_count += 1
