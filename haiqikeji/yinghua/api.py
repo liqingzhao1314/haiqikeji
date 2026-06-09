@@ -32,10 +32,6 @@ COURSE_TITLE_XPATH = "./div/div/div[2]/div[1]/a/text()"
 COURSE_URL_XPATH = "./div/div/div[2]/div[1]/a/@href"
 # 课程进度百分比文本
 COURSE_PROGRESS_XPATH = "./div/div/div[2]/div[3]/div[3]/text()"
-# 章节标题
-CHAPTER_TITLE_XPATH = '//div[@class="tit"]//a/text()'
-# 章节链接（含 nodeId）
-CHAPTER_URL_XPATH = '//div[@class="tit"]//a/@href'
 
 # 进度完成标识
 PROGRESS_COMPLETE = "100%"
@@ -101,6 +97,9 @@ def _page_headers(referer_url: str) -> dict[str, str]:
 # 验证码相关
 # ====================
 
+# 缓存 OCR 引擎实例，避免每次识别都加载 ONNX 模型
+_ocr_engine: Any = None
+
 
 def get_captcha_image(session: requests.Session, base_url: str = DEFAULT_BASE_URL) -> bytes:
     """下载验证码图片。
@@ -136,10 +135,13 @@ def recognize_captcha(image_bytes: bytes) -> str:
     Raises:
         ImportError: 未安装 ddddocr。
     """
-    import ddddocr
+    global _ocr_engine
 
-    ocr = ddddocr.DdddOcr(show_ad=False)
-    return ocr.classification(image_bytes)
+    if _ocr_engine is None:
+        import ddddocr
+
+        _ocr_engine = ddddocr.DdddOcr(show_ad=False)
+    return _ocr_engine.classification(image_bytes)
 
 
 # ====================
@@ -256,64 +258,12 @@ def get_incomplete_course_ids(
 
         for title, course_url, progress in zip(titles, urls, progresses, strict=True):
             if PROGRESS_COMPLETE not in progress:
+                if "Id=" not in course_url:
+                    continue
                 course_id = course_url.split("Id=")[1]
                 incomplete.append({"courseId": course_id, "title": title})
 
     return incomplete
-
-
-def get_chapter_node_ids(
-    session: requests.Session,
-    course_ids: list[str],
-    base_url: str = DEFAULT_BASE_URL,
-) -> list[dict[str, str]]:
-    """获取课程章节的 nodeId 列表。
-
-    通过解析章节页面 HTML 提取每个章节的 nodeId。
-
-    Args:
-        session: 已登录的 HTTP 会话。
-        course_ids: 课程 ID 列表。
-        base_url: 英华平台基础地址。
-
-    Returns:
-        章节信息列表，每项包含 nodeId、courseId 字段。
-
-    Raises:
-        requests.RequestException: 网络请求失败。
-        ImportError: 未安装 lxml。
-    """
-    from lxml import etree
-
-    nodes: list[dict[str, str]] = []
-
-    for course_id in course_ids:
-        params = {"courseId": course_id}
-        referer_url = f"{base_url}/user/course?courseId={course_id}"
-        headers = _page_headers(referer_url)
-
-        try:
-            response = session.get(
-                f"{base_url}/user/course/chapter",
-                params=params,
-                headers=headers,
-                timeout=15,
-            )
-            response.raise_for_status()
-
-            html_tree = etree.HTML(response.text)
-            chapter_urls = html_tree.xpath(CHAPTER_URL_XPATH)
-
-            for url in chapter_urls:
-                node_id = url.split("nodeId=")[1]
-                nodes.append({"nodeId": node_id, "courseId": course_id})
-
-        except requests.RequestException:
-            pass
-        except (IndexError, AttributeError):
-            pass
-
-    return nodes
 
 
 # ====================

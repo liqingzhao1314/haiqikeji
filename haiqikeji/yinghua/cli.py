@@ -27,6 +27,9 @@ from haiqikeji.yinghua.session import create_session
 # 进度条平滑刷新间隔（秒）
 _TICK = 0.25
 
+# 学习状态筛选关键词
+_STATE_UNLEARNED = "未学"
+
 
 def parse_time_to_seconds(time_str: str) -> int:
     """将时间字符串 (HH:MM:SS) 转换为秒数。
@@ -45,14 +48,9 @@ def parse_time_to_seconds(time_str: str) -> int:
         if len(parts) == 2:
             minutes, seconds = map(int, parts)
             return minutes * 60 + seconds
-        if len(parts) == 1:
-            return int(parts[0])
+        return int(parts[0])
+    except (ValueError, AttributeError, IndexError):
         return 0
-    except (ValueError, AttributeError):
-        try:
-            return int(time_str)
-        except (ValueError, TypeError):
-            return 0
 
 
 def _do_login(
@@ -86,7 +84,7 @@ def _do_login(
             logger.error("未安装 ddddocr，无法自动识别验证码")
             logger.error("请运行: uv sync --extra yinghua")
             return False
-        except Exception:
+        except (requests.RequestException, OSError, ValueError):
             logger.warning("获取/识别验证码失败", exc_info=True)
             continue
 
@@ -95,7 +93,7 @@ def _do_login(
             logger.info("登录成功")
             return True
 
-        logger.warning(f"登录失败: {result}")
+        logger.warning(f"登录失败: code={result.get('code')}, msg={result.get('msg')}")
 
     logger.error("登录重试次数已用完")
     return False
@@ -252,9 +250,10 @@ def main(
     base_url: str = DEFAULT_BASE_URL,
     speed: float = 1.0,
     skip_complete: bool = False,
-    verbose: bool = False,
 ) -> int:
     """英华平台刷课主入口。
+
+    日志系统由调用方（haiqikeji.cli.main）统一初始化，本函数不再重复配置。
 
     Args:
         username: 登录用户名/学号。
@@ -262,7 +261,6 @@ def main(
         base_url: 英华平台基础地址。
         speed: 播放速度倍数（0.5~3.0）。
         skip_complete: 是否跳过已完成的课程。
-        verbose: 是否启用 DEBUG 日志。
 
     Returns:
         退出码：0 表示成功，1 表示失败。
@@ -323,7 +321,9 @@ def main(
 
         # 筛选未学习的记录
         unlearned = {
-            r["id"]: r.get("chapterId", "") for r in records if "未学" in r.get("state", "")
+            r["id"]: r.get("chapterId", "")
+            for r in records
+            if _STATE_UNLEARNED in r.get("state", "")
         }
 
         if not unlearned:
@@ -334,9 +334,15 @@ def main(
 
         for node_id, _chapter_id in unlearned.items():
             node_id_str = str(node_id)
-            logger.info("正在学习: nodeId=%s", node_id_str)
+            logger.info(f"正在学习: nodeId={node_id_str}")
 
-            success = _do_update_progress(session, token, node_id_str, speed, base_url)
+            try:
+                success = _do_update_progress(session, token, node_id_str, speed, base_url)
+            except requests.RequestException:
+                logger.error(f"课程 {node_id_str} 学习异常，跳过", exc_info=True)
+                fail_count += 1
+                continue
+
             if success:
                 success_count += 1
             else:
@@ -344,5 +350,5 @@ def main(
 
     # 输出统计
     logger.info("\n刷课完成")
-    logger.info("成功 %d | 失败 %d", success_count, fail_count)
+    logger.info(f"成功 {success_count} | 失败 {fail_count}")
     return 0

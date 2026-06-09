@@ -666,6 +666,15 @@ def main() -> int:
         # 规范化 URL：去除末尾斜杠
         base_url = args.url.rstrip("/")
 
+        # 校验 URL 格式
+        from urllib.parse import urlparse
+
+        parsed = urlparse(base_url)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            logger.error(f"--url 格式无效: {args.url}")
+            logger.error("示例: --url https://scauzj.xxx.com")
+            return 1
+
         from haiqikeji.yinghua.cli import main as yinghua_main
 
         return yinghua_main(
@@ -674,7 +683,6 @@ def main() -> int:
             base_url=base_url,
             speed=args.speed,
             skip_complete=args.skip_complete,
-            verbose=args.verbose,
         )
 
     session = create_session()
